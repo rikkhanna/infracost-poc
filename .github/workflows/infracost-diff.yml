@@ -67,7 +67,7 @@ jobs:
           INFRACOST_CLI_AUTHENTICATION_TOKEN: ${{ secrets.INFRACOST_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INFRACOST_VCS_PULL_REQUEST_ID: ${{ needs.infracost-pr.outputs.pr-number }}
-        run: infracost-ci diff --base-path base --head-path head
+        run: infracost-scanner diff --base-path base --head-path head
 
       # Without this the dashboard leaves every merged pull request at OPEN.
       - name: Update pull request status
@@ -77,4 +77,4 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           INFRACOST_VCS_PULL_REQUEST_ID: ${{ needs.infracost-pr.outputs.pr-number }}
           PR_STATUS: ${{ github.event.pull_request.merged && 'MERGED' || 'CLOSED' }}
-        run: infracost-ci status --status "$PR_STATUS"
+        run: infracost-scanner status --status "$PR_STATUS"

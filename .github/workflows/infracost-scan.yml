@@ -19,4 +19,4 @@ jobs:
       - name: Run Infracost Scan
         env:
           INFRACOST_CLI_AUTHENTICATION_TOKEN: ${{ secrets.INFRACOST_API_KEY }}
-        run: infracost-ci scan --path .
+        run: infracost-scanner scan --path .
