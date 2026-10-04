@@ -1,0 +1,80 @@
+name: Infracost Diff
+# Managed by infracost ci setup v1 — re-run `infracost ci setup --pipeline` to update.
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+  workflow_dispatch:
+    inputs:
+      pr-number:
+        description: "Pull request number to scan"
+        required: true
+        type: number
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  # On the runner, not in the container: the Infracost image ships git and
+  # infracost-ci, not the gh CLI a workflow_dispatch run needs to resolve refs.
+  infracost-pr:
+    runs-on: ubuntu-latest
+    outputs:
+      base-ref: ${{ steps.pr.outputs.base-ref }}
+      head-ref: ${{ steps.pr.outputs.head-ref }}
+      pr-number: ${{ steps.pr.outputs.pr-number }}
+    steps:
+      - name: Get PR details
+        id: pr
+        env:
+          GH_TOKEN: ${{ github.token }}
+          INPUT_PR_NUMBER: ${{ inputs.pr-number }}
+          PR_NUMBER: ${{ inputs.pr-number || github.event.pull_request.number }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          if [ -n "$INPUT_PR_NUMBER" ]; then
+            BASE_REF=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json baseRefName -q .baseRefName)
+            HEAD_REF=$(gh pr view "$PR_NUMBER" --repo "$GITHUB_REPOSITORY" --json headRefName -q .headRefName)
+          fi
+          echo "base-ref=${BASE_REF}" >> $GITHUB_OUTPUT
+          echo "head-ref=${HEAD_REF}" >> $GITHUB_OUTPUT
+          echo "pr-number=${PR_NUMBER}" >> $GITHUB_OUTPUT
+
+  infracost-diff:
+    needs: infracost-pr
+    runs-on: ubuntu-latest
+    container: ghcr.io/infracost/ci:0.1
+    steps:
+      - name: Checkout base branch
+        if: github.event.action != 'closed'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.infracost-pr.outputs.base-ref }}
+          path: base
+
+      - name: Checkout head branch
+        if: github.event.action != 'closed'
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.infracost-pr.outputs.head-ref }}
+          path: head
+
+      - name: Run Infracost Diff
+        if: github.event.action != 'closed'
+        env:
+          INFRACOST_CLI_AUTHENTICATION_TOKEN: ${{ secrets.INFRACOST_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFRACOST_VCS_PULL_REQUEST_ID: ${{ needs.infracost-pr.outputs.pr-number }}
+        run: infracost-ci diff --base-path base --head-path head
+
+      # Without this the dashboard leaves every merged pull request at OPEN.
+      - name: Update pull request status
+        if: github.event.action == 'closed'
+        env:
+          INFRACOST_CLI_AUTHENTICATION_TOKEN: ${{ secrets.INFRACOST_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INFRACOST_VCS_PULL_REQUEST_ID: ${{ needs.infracost-pr.outputs.pr-number }}
+          PR_STATUS: ${{ github.event.pull_request.merged && 'MERGED' || 'CLOSED' }}
+        run: infracost-ci status --status "$PR_STATUS"
